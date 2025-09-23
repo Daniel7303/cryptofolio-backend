@@ -114,7 +114,7 @@ class PortfolioListCreateView(generics.ListCreateAPIView):
     
     def perform_create(self, serializer):
         portfolio = serializer.save(user=self.request.user)
-        # take first snapshot when coin is added
+        # take first snapshot
         PortfolioHistory.objects.create(
             portfolio=portfolio,
             value_usd=portfolio.amount * portfolio.coin.price
