@@ -5,8 +5,10 @@ from django.utils.timezone import now
 from rest_framework import generics, filters
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.decorators import api_view
+from rest_framework.views import APIView 
 from rest_framework.response import Response
 from rest_framework import status
+
 import requests
 
 # App modules
@@ -14,6 +16,7 @@ from .models import Coin, Portfolio, PortfolioHistory
 from .serializers import CoinSerializer, PortfolioSerializer
 from .utils import update_coin_prices
 from .utils import fetch_coin_on_demand
+
 
 # Create your views here.
 
@@ -113,12 +116,13 @@ class PortfolioListCreateView(generics.ListCreateAPIView):
     serializer_class = PortfolioSerializer
     
     def perform_create(self, serializer):
-        portfolio = serializer.save(user=self.request.user)
-        # take first snapshot
-        PortfolioHistory.objects.create(
-            portfolio=portfolio,
-            value_usd=portfolio.amount * portfolio.coin.price
-        )
+        serializer.save()
+        # portfolio = serializer.save(user=self.request.user)
+        # # take first snapshot
+        # PortfolioHistory.objects.create(
+        #     portfolio=portfolio,
+        #     value_usd=portfolio.amount * portfolio.coin.price
+        # )
     
 
 class PortfolioDetailView(generics.RetrieveUpdateDestroyAPIView):
@@ -213,3 +217,43 @@ def record_portfolio_snapshots(request):
             })
 
     return Response({"snapshots": snapshots})
+
+
+
+
+class PortfolioInsightView(APIView):
+    
+    
+    def get(self, request):
+        portfolio = Portfolio.objects.select_related("coin")
+        
+        holdings = []
+        total_value = 0
+        
+        for p in portfolio:
+            value = float(p.amount) * float(p.coin.price)
+            holdings.append({
+                "coin": p.coin.name,
+                "quantity": float(p.amount),
+                "price": float(p.coin.price),
+                'value':value
+            })
+            
+            total_value += value
+            
+        for h in holdings:
+            h["percentage"] = (h["value"] / total_value * 100) if total_value > 0 else 0
+            
+        
+        top_holding = max(holdings, key=lambda x: x["value"], default=None)
+        
+        
+        data = {
+            "total_value_usd": total_value,
+            "number_of_assets": len(holdings),
+            "top_holding": top_holding,
+            "holdings": holdings
+            
+        }
+        
+        return Response(data)

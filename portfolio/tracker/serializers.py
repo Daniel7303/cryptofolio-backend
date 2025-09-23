@@ -71,7 +71,9 @@ class PortfolioSerializer(serializers.ModelSerializer):
         return ((current_value - initial_value) / initial_value) * 100
 
     def create(self, validated_data):
-        portfolio = super().create(validated_data)
+    # validated_data["coin"] is a Coin instance here
+        portfolio = Portfolio.objects.create(**validated_data)
+
         # record first snapshot
         if portfolio.coin and portfolio.coin.price:
             value = float(portfolio.amount) * float(portfolio.coin.price)
@@ -81,3 +83,13 @@ class PortfolioSerializer(serializers.ModelSerializer):
                 value_usd=value,
             )
         return portfolio
+
+
+
+ #adding portfolio insight serializers
+ 
+# class PortfolioInsightSerializer(serializers.Serializer):
+#     total_value_usd = serializers.FloatField()
+#     number_of_assets = serializers.IntegerField()
+#     top_holding = serializers.DictField()
+#     holddings = serializers.ListField()

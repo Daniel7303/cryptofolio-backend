@@ -9,7 +9,8 @@ from .views import (
     PortfolioDetailView,
     portfolio_summary,
     portfolio_performance,
-    record_portfolio_snapshots
+    record_portfolio_snapshots,
+    PortfolioInsightView,
 )
 
 urlpatterns = [
@@ -26,6 +27,8 @@ urlpatterns = [
     
     path("portfolio/<int:portfolio_id>/performance/", portfolio_performance, name="portfolio-performance"),
     path("snapshot/", record_portfolio_snapshots, name="portfolio-snapshot"),
+    
+    path("insight/", PortfolioInsightView.as_view(), name="insight")
 
 ]
 
