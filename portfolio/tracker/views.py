@@ -1,21 +1,27 @@
 from django.shortcuts import render
 from django.utils.timezone import now
+from django.db.models import Q
 
 # DRF modules
 from rest_framework import generics, filters
 from django_filters.rest_framework import DjangoFilterBackend
-from rest_framework.decorators import api_view
+from rest_framework.decorators import api_view, permission_classes
 from rest_framework.views import APIView 
 from rest_framework.response import Response
 from rest_framework import status
+# from rest_framework.permissions import IsAuthenticated
+from rest_framework import permissions
+
 
 import requests
 
 # App modules
+from accounts.permissions import IsOwner
 from .models import Coin, Portfolio, PortfolioHistory
 from .serializers import CoinSerializer, PortfolioSerializer
 from .utils import update_coin_prices
 from .utils import fetch_coin_on_demand
+from . pagination import StandardResultSetPagination
 
 
 # Create your views here.
@@ -23,11 +29,13 @@ from .utils import fetch_coin_on_demand
 COINGECKO_BASE = "https://api.coingecko.com/api/v3"
 
 
-class CoinListCreateView(generics.ListCreateAPIView):
+class CoinListView(generics.ListAPIView):
     queryset = Coin.objects.all()
     serializer_class = CoinSerializer
     
-    #addng filters
+    # permission_classes = [IsAuthenticated]
+    pagination_class = StandardResultSetPagination
+    
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     search_fields = ["name", "symbol"]
     ordering_fields = ["price", "name"]
@@ -41,7 +49,9 @@ class CoinDetailView(generics.RetrieveUpdateDestroyAPIView):
     
 
 @api_view(["POST"])
+@permission_classes([permissions.IsAdminUser])
 def refresh_coin_prices(request):
+    
     try:
         update_coin_prices()
         return Response({"message": "Coin prices updated successfully!"}, status=status.HTTP_200_OK)
@@ -63,9 +73,15 @@ def get_coin(request, coin_id):
 
 
 @api_view(["GET"])
-def search_coin(request, query):
-    # 1. Check local DB by name OR symbol
-    local_matches = Coin.objects.filter(name__icontains=query) | Coin.objects.filter(symbol__icontains=query)
+def search_coin(request):
+    query = request.GET.get("query", "").strip()
+    if not query:
+        return Response({"error": "Query parameter is required"}, status=400)
+
+    # 1. Check local DB
+    local_matches = Coin.objects.filter(
+        Q(name__icontains=query) | Q(symbol__icontains=query)
+    )
     if local_matches.exists():
         serializer = CoinSerializer(local_matches, many=True)
         return Response(serializer.data)
@@ -82,8 +98,8 @@ def search_coin(request, query):
         return Response({"error": "Coin not found"}, status=404)
 
     results = []
-    for c in coins:
-        cg_id = c["id"]  # e.g. "terra-luna-2"
+    for c in coins[:5]:  # limit to top 5 results
+        cg_id = c["id"]
         detail_url = f"{COINGECKO_BASE}/coins/{cg_id}"
         detail_resp = requests.get(detail_url)
 
@@ -91,18 +107,16 @@ def search_coin(request, query):
             continue
 
         detail = detail_resp.json()
-        price = detail.get("market_data", {}).get("current_price", {}).get("usd", None)
+        price = detail.get("market_data", {}).get("current_price", {}).get("usd", 0)
 
-        # Use coingecko_id to guarantee uniqueness
-        coin, created = Coin.objects.update_or_create(
+        coin, _ = Coin.objects.update_or_create(
             coingecko_id=cg_id,
             defaults={
                 "name": detail["name"],
                 "symbol": detail["symbol"].upper(),
-                "price": price or 0
-            }
+                "price": price,
+            },
         )
-
         results.append(CoinSerializer(coin).data)
 
     return Response(results)
@@ -112,24 +126,47 @@ def search_coin(request, query):
 
 
 class PortfolioListCreateView(generics.ListCreateAPIView):
-    queryset = Portfolio.objects.all()
+    # queryset = Portfolio.objects.all()
     serializer_class = PortfolioSerializer
     
+    permission_classes = [permissions.IsAuthenticated]
+    
+    
+    def get_queryset(self):
+        user = self.request.user
+        if user.is_staff or user.is_superuser:
+            return Portfolio.objects.all()
+        
+        return Portfolio.objects.filter(user=self.request.user)
+    
     def perform_create(self, serializer):
-        serializer.save()
-        # portfolio = serializer.save(user=self.request.user)
-        # # take first snapshot
-        # PortfolioHistory.objects.create(
-        #     portfolio=portfolio,
-        #     value_usd=portfolio.amount * portfolio.coin.price
-        # )
+        # serializer.save(user=self.request.user)
+        portfolio = serializer.save(user=self.request.user)
+        # take first snapshot
+        PortfolioHistory.objects.create(
+            portfolio=portfolio,
+            value_usd=portfolio.amount * portfolio.coin.price
+        )
     
 
 class PortfolioDetailView(generics.RetrieveUpdateDestroyAPIView):
-    queryset = Portfolio.objects.all()
+    # queryset = Portfolio.objects.all()
     serializer_class = PortfolioSerializer
+    
+    permission_classes = [permissions.IsAuthenticated, IsOwner]
+    
+    def get_queryset(self):
+        user = self.request.user
+        if user.is_staff or user.is_superuser:
+            return Portfolio.objects.all()
+        
+        return Portfolio.objects.filter(user=self.request.user)
+        
+    
+    
 
 @api_view(["GET"])
+@permission_classes([permissions.IsAuthenticated])
 def portfolio_summary(request):
     Portfolios = Portfolio.objects.all()
     total_value = 0
@@ -160,15 +197,19 @@ def portfolio_summary(request):
 
 @api_view(["GET"])
 def portfolio_performance(request, portfolio_id):
+    
+    portfolio = Portfolio.objects.get(id=portfolio_id)
+    if not (request.user.is_staff or portfolio.user == request.user):
+        return Response({"error": "Forbidden"}, status=403)
+
     try:
         history = PortfolioHistory.objects.filter(portfolio_id=portfolio_id).order_by("date")
         if not history.exists():
             return Response({"Error": "No History yet"})
 
         first = history.first()
-        portfolio = first.portfolio  # same portfolio for all history
-
-        # use live price
+        portfolio = first.portfolio  
+    
         current_value = float(portfolio.amount) * float(portfolio.coin.price)
 
         return Response({
@@ -195,6 +236,7 @@ def portfolio_performance(request, portfolio_id):
 
 
 @api_view(["POST"])
+@permission_classes([permissions.IsAdminUser])
 def record_portfolio_snapshots(request):
     portfolios = Portfolio.objects.all()
     snapshots = []
@@ -225,8 +267,7 @@ class PortfolioInsightView(APIView):
     
     
     def get(self, request):
-        portfolio = Portfolio.objects.select_related("coin")
-        
+        portfolio = Portfolio.objects.filter(user=request.user).select_related("coin")
         holdings = []
         total_value = 0
         

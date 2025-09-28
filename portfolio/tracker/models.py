@@ -1,6 +1,7 @@
 from django.db import models
 from decimal import Decimal
 from django.utils.timezone import now
+from django.conf import settings
 
 
 
@@ -8,7 +9,7 @@ from django.utils.timezone import now
 
 
 class Coin(models.Model):
-    coingecko_id = models.CharField(max_length=50, null=True, unique=True)  
+    coingecko_id = models.CharField(max_length=50, blank=True, unique=True)  
     name = models.CharField(max_length=100,)
     symbol = models.CharField(max_length=10, unique=False)
     price = models.DecimalField(max_digits=20, decimal_places=8, )
@@ -21,6 +22,7 @@ class Coin(models.Model):
     
     
 class Portfolio(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="portfolios")
     name  = models.CharField(max_length=100)
     coin = models.ForeignKey(Coin, on_delete=models.CASCADE, related_name="holdings")
     amount = models.DecimalField(max_digits=20, decimal_places=8, default=Decimal("0.0"))
