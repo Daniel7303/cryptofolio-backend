@@ -3,6 +3,7 @@ from django.utils.timezone import now
 from .models import Coin, Portfolio, PortfolioHistory
 
 
+
 class CoinSerializer(serializers.ModelSerializer):
     class Meta:
         model = Coin
@@ -28,6 +29,7 @@ class PortfolioSerializer(serializers.ModelSerializer):
     )
 
     # computed fields
+    user = serializers.SerializerMethodField()
     initial_value = serializers.SerializerMethodField()
     current_value = serializers.SerializerMethodField()
     usd_growth = serializers.SerializerMethodField()
@@ -37,6 +39,7 @@ class PortfolioSerializer(serializers.ModelSerializer):
     class Meta:
         model = Portfolio
         fields = [
+            "user",
             "id",
             "coin",
             "coin_id",
@@ -47,6 +50,9 @@ class PortfolioSerializer(serializers.ModelSerializer):
             "pct_growth",
             "history",
         ]
+        
+    def get_user(self, obj):
+        return obj.user.name
 
     def get_initial_value(self, obj):
         first_snapshot = obj.history.order_by("date").first()
@@ -70,19 +76,6 @@ class PortfolioSerializer(serializers.ModelSerializer):
             return 0
         return ((current_value - initial_value) / initial_value) * 100
 
-    def create(self, validated_data):
-    # validated_data["coin"] is a Coin instance here
-        portfolio = Portfolio.objects.create(**validated_data)
-
-        # record first snapshot
-        if portfolio.coin and portfolio.coin.price:
-            value = float(portfolio.amount) * float(portfolio.coin.price)
-            PortfolioHistory.objects.create(
-                portfolio=portfolio,
-                date=now().date(),
-                value_usd=value,
-            )
-        return portfolio
 
 
 

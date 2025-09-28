@@ -1,9 +1,10 @@
 from django.urls import path
 from .views import (
-    CoinListCreateView,
+    CoinListView,
     CoinDetailView,
     refresh_coin_prices,
     get_coin,
+    search_coin,
     
     PortfolioListCreateView,
     PortfolioDetailView,
@@ -14,10 +15,11 @@ from .views import (
 )
 
 urlpatterns = [
-    path('coins/', CoinListCreateView.as_view(), name='coin-list-create'),
+    path('coins/', CoinListView.as_view(), name='coin-list-create'),
     path('coins/<int:pk>/', CoinDetailView.as_view(), name='coin-detail'),
     path('coins/update-prices/', refresh_coin_prices, name='refresh-prices'),
     path('coins/search/<str:coin_id>/', get_coin, name='get-coin'),
+    path("search-coin/", search_coin, name="search-coin"),
     
     path("portfolio/", PortfolioListCreateView.as_view(), name="portfolio-list-create"),
     path("portfolio/<int:pk>/", PortfolioDetailView.as_view(), name="portfolio-detail"),
