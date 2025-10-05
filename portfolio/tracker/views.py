@@ -11,14 +11,15 @@ from rest_framework.response import Response
 from rest_framework import status
 # from rest_framework.permissions import IsAuthenticated
 from rest_framework import permissions
+from rest_framework.exceptions import ValidationError
 
 
 import requests
 
 # App modules
 from accounts.permissions import IsOwner
-from .models import Coin, Portfolio, PortfolioHistory
-from .serializers import CoinSerializer, PortfolioSerializer
+from .models import Coin, Portfolio, PortfolioHistory, Watchlist
+from .serializers import CoinSerializer, PortfolioSerializer, WatchlistSerializer
 from .utils import update_coin_prices
 from .utils import fetch_coin_on_demand
 from . pagination import StandardResultSetPagination
@@ -46,7 +47,38 @@ class CoinListView(generics.ListAPIView):
 class CoinDetailView(generics.RetrieveUpdateDestroyAPIView):
     queryset = Coin.objects.all()
     serializer_class = CoinSerializer
+
+class WatchlistListCreateView(generics.ListCreateAPIView):
     
+    serializer_class = WatchlistSerializer
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get_queryset(self):
+        user = self.request.user
+        if user.is_staff or user.is_superuser:
+            return Watchlist.objects.all()
+        return Watchlist.objets.filter(user=user)
+    
+    def perform_create(self, serializer):
+        user = self.request.user
+        coin = serializer.validated_data["coin"]
+                                         
+        if Watchlist.objects.filter(user=user, coin=coin).exists():
+            raise ValidationError("Coin already exists in your watchlist.")
+        serializer.save(user=self.request.user)
+
+
+class WatchlistDetailView(generics.DestroyAPIView):
+    serializer_class = WatchlistSerializer
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        user = self.request.user
+        if user.is_staff or user.is_superuser:
+            return Watchlist.objects.all()
+        return Watchlist.objects.filter(user=user)
+
+
 
 @api_view(["POST"])
 @permission_classes([permissions.IsAdminUser])
@@ -262,10 +294,8 @@ def record_portfolio_snapshots(request):
 
 
 
-
+@permission_classes([permissions.IsAuthenticated])
 class PortfolioInsightView(APIView):
-    
-    
     def get(self, request):
         portfolio = Portfolio.objects.filter(user=request.user).select_related("coin")
         holdings = []

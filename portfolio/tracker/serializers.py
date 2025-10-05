@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from django.utils.timezone import now
-from .models import Coin, Portfolio, PortfolioHistory
+from .models import Coin, Portfolio, PortfolioHistory, Watchlist
 
 
 
@@ -20,6 +20,25 @@ class PortfolioHistorySerializer(serializers.ModelSerializer):
         model = PortfolioHistory
         fields = ["date", "value_usd"]
 
+
+class WatchlistSerializer(serializers.ModelSerializer):
+    coin = CoinSerializer(read_only=True)
+    coin_id = serializers.PrimaryKeyRelatedField(
+        queryset=Coin.objects.all(),
+        source="coin",
+        write_only=True
+    )
+    in_portfolio = serializers.SerializerMethodField()
+    
+    class Meta:
+        model = Watchlist
+        fields = ["id", "coin", "coin_id", "date_added", "in_portfolio"]
+        
+    def get_in_portfolio(self, obj):
+        user = self._context["request"].user
+        return obj.coin.holdings.filter(user=user).exists()
+    
+    
 
 class PortfolioSerializer(serializers.ModelSerializer):
     # relationships

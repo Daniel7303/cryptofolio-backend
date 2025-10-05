@@ -72,6 +72,15 @@ class PortfolioHistory(models.Model):
     
     
     
+
+class Watchlist(models.Model):
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="watchlist")
+    coin = models.ForeignKey(Coin, on_delete=models.CASCADE, related_name="watchlist")
+    date_added = models.DateTimeField(auto_now_add=True)
     
+    class Meta:
+        unique_together = ("user", "coin")
+        ordering = ["-date_added"]
     
-    
+    def __str__(self):
+        return f"{self.user.email} → {self.coin.symbol}"
