@@ -13,7 +13,6 @@ from rest_framework import status
 from rest_framework import permissions
 from rest_framework.exceptions import ValidationError
 
-
 import requests
 
 # App modules
@@ -23,6 +22,7 @@ from .serializers import CoinSerializer, PortfolioSerializer, WatchlistSerialize
 from .utils import update_coin_prices
 from .utils import fetch_coin_on_demand
 from . pagination import StandardResultSetPagination
+from alerts.models import Alert
 
 
 # Create your views here.
@@ -49,26 +49,41 @@ class CoinDetailView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = CoinSerializer
 
 class WatchlistListCreateView(generics.ListCreateAPIView):
-    
     serializer_class = WatchlistSerializer
     permission_classes = [permissions.IsAuthenticated]
-    
+
     def get_queryset(self):
         user = self.request.user
         if user.is_staff or user.is_superuser:
             return Watchlist.objects.all()
-        return Watchlist.objets.filter(user=user)
-    
+        return Watchlist.objects.filter(user=user)
+
     def perform_create(self, serializer):
         user = self.request.user
         coin = serializer.validated_data["coin"]
-                                         
+
+        # ✅ Check for duplicates before saving
         if Watchlist.objects.filter(user=user, coin=coin).exists():
             raise ValidationError("Coin already exists in your watchlist.")
-        serializer.save(user=self.request.user)
+
+        # ✅ Save the watchlist item
+        watch_item = serializer.save(user=user)
+
+        # ✅ Get optional target price from request body
+        target_price = self.request.data.get("target_price")
+
+        # ✅ If a target price is provided, create an Alert
+        if target_price:
+            Alert.objects.create(
+                user=user,
+                coin=watch_item.coin,
+                target_price=target_price,
+                alert_type="price",
+                message=f"Alert set for {watch_item.coin.name} at ${target_price}"
+            )
 
 
-class WatchlistDetailView(generics.DestroyAPIView):
+class WatchlistDetailView(generics.RetrieveDestroyAPIView):
     serializer_class = WatchlistSerializer
     permission_classes = [permissions.IsAuthenticated]
 
@@ -80,7 +95,7 @@ class WatchlistDetailView(generics.DestroyAPIView):
 
 
 
-@api_view(["POST"])
+@api_view(["GET", "POST"])
 @permission_classes([permissions.IsAdminUser])
 def refresh_coin_prices(request):
     

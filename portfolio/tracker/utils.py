@@ -3,6 +3,8 @@ from decimal import Decimal
 from .models import Coin
 from django.utils.timezone import now
 from .models import Portfolio, PortfolioHistory
+from celery import shared_task
+from requests.exceptions import HTTPError, ConnectionError, Timeout
 
 
 
@@ -14,32 +16,48 @@ def get_coin_prices(coin_ids):
     return {k: v['usd'] for k, v in response.json().items()}
 
 
-def update_coin_prices():
+@shared_task(bind=True, max_retries=5)
+def update_coin_prices(self):
     coins = Coin.objects.all()
     if not coins:
-        print("No coins in DB. Run populate_top_coins first.")
+        print("⚠️ No coins in DB. Run populate_top_coins first.")
         return
 
     coin_ids = [coin.coingecko_id for coin in coins]
     url = "https://api.coingecko.com/api/v3/simple/price"
     params = {"ids": ",".join(coin_ids), "vs_currencies": "usd"}
-    response = requests.get(url, params=params)
-    response.raise_for_status()
-    prices = response.json()
 
-    for coin in coins:
-        if coin.coingecko_id in prices:
-            coin.price = Decimal(str(prices[coin.coingecko_id]["usd"]))
-            coin.save()
-            print(f"Updated {coin.name} (${coin.price})")
+    try:
+        response = requests.get(url, params=params, timeout=10)
+        response.raise_for_status()
+        prices = response.json()
 
+        for coin in coins:
+            if coin.coingecko_id in prices:
+                coin.price = Decimal(str(prices[coin.coingecko_id]["usd"]))
+                coin.save()
+                print(f"✅ Updated {coin.name} (${coin.price})")
+
+    except HTTPError as e:
+        if e.response.status_code == 429:
+            # Too many requests → back off and retry
+            delay = 60 * (self.request.retries + 1)
+            print(f"⚠️ Rate limited by API. Retrying in {delay} seconds...")
+            raise self.retry(exc=e, countdown=delay)
+        else:
+            print(f"❌ HTTP Error: {e}")
+            raise e
+
+    except (ConnectionError, Timeout) as e:
+        # Retry after 30 seconds if network fails
+        print("⚠️ Network issue. Retrying in 30 seconds...")
+        raise self.retry(exc=e, countdown=30)
+
+    except Exception as e:
+        print(f"❌ Unexpected error: {e}")
+        raise e
             
-            
-
-# tracker/utils.py
-import requests
-from decimal import Decimal
-from .models import Coin
+        
 
 def get_top_coins(n=100):
     """
@@ -105,7 +123,7 @@ def fetch_coin_on_demand(coin_id):
             return coin
         return None
 
-
+@shared_task()
 def record_portfolio_snapshots():
     today = now().date()
     portfolios = Portfolio.objects.all()

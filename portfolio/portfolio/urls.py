@@ -25,9 +25,11 @@ urlpatterns = [
     path('api-auth/', include('rest_framework.urls')),
     
     path("api/accounts/", include("accounts.urls")),  # registration routes
+    path("api/alerts/", include("alerts.urls")),
     
     path("api/token/", TokenObtainPairView.as_view(), name="token_obtain_pair"),  # login
     path("api/token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),  # refresh token
     
-
 ]
+
+
