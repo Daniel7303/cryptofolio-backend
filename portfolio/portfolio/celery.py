@@ -16,3 +16,8 @@ app.conf.beat_schedule = {
         "schedule": 600.0,  # 600 seconds = 10 minutes
     },
 }
+
+
+@app.task(bind=True)
+def debug_task(self):
+    print(f'Request: {self.request!r}')
